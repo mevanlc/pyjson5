@@ -190,7 +190,7 @@ def _parse_args(host, argv):
         help='Allow control characters (\\x00-\\x1f) in strings',
     )
     parser.add_argument(
-        '--json-lines',
+        '-l', '--json-lines',
         action='store_true',
         default=False,
         help='Parse input as JSON Lines / jsonl (one JSON document per line).',
