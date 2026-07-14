@@ -160,12 +160,7 @@ class ToolTest(unittest.TestCase):
                 '-c',
                 '{foo: "one two three four"}',
             ],
-            out=(
-                '{\n'
-                '    foo: "one \\\n'
-                'two three four",\n'
-                '}\n'
-            ),
+            out=('{\n    foo: "one \\\ntwo three four",\n}\n'),
         )
 
     def test_continuations_style(self):
@@ -180,13 +175,7 @@ class ToolTest(unittest.TestCase):
                 '-c',
                 '{foo: "abcdefgh\\nijklmnop"}',
             ],
-            out=(
-                '{foo: "\\\n'
-                'abcdefg\\\n'
-                'h\\n\\\n'
-                'ijklmno\\\n'
-                'p"}\n'
-            ),
+            out=('{foo: "\\\nabcdefg\\\nh\\n\\\nijklmno\\\np"}\n'),
         )
 
     def test_continuations_are_disabled_by_as_json(self):
@@ -249,15 +238,7 @@ class ToolTest(unittest.TestCase):
         self.check(
             ['--json-lines', '--multiline'],
             stdin='{foo: "a\\nb"}\n{bar: "x"}\n',
-            out=(
-                '{\n'
-                '    foo: "a\\n\\\n'
-                'b",\n'
-                '}\n'
-                '{\n'
-                '    bar: "x",\n'
-                '}\n'
-            ),
+            out=('{\n    foo: "a\\n\\\nb",\n}\n{\n    bar: "x",\n}\n'),
         )
 
     def test_quote_keys(self):

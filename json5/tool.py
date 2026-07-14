@@ -208,7 +208,8 @@ def _parse_args(host, argv):
         help='Allow control characters (\\x00-\\x1f) in strings',
     )
     parser.add_argument(
-        '-l', '--json-lines',
+        '-l',
+        '--json-lines',
         action='store_true',
         default=False,
         help='Parse input as JSON Lines / jsonl (one JSON document per line).',
@@ -258,7 +259,9 @@ def _parse_args(host, argv):
     if args.continuations_style and args.continuations_at is None:
         parser.error('--continuations-style requires --continuations-at')
     if args.continuations_style is None:
-        args.continuations_style = json5.ContinuationStyle.WORD_SINGLE_LINE.value
+        args.continuations_style = (
+            json5.ContinuationStyle.WORD_SINGLE_LINE.value
+        )
     return args
 
 

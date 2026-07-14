@@ -108,7 +108,7 @@ $ brew install just
 $ git clone https://github.com/dpranke/pyjson5
 $ git clone https://github.com/dpranke/glop
 $ cd pyjson5
-$ uv sync --extra dev
+$ uv sync --group dev
 $ source .venv/bin/activate  # To activate a venv w/ all the needed dev tools.
 ```
 
@@ -120,7 +120,7 @@ Install `just` via whatever mechanism is appropriate.
 ### Create the venv
 
 ```
-$ uv sync --extra dev
+$ uv sync --group dev
 ```
 
 ### Running the tests
