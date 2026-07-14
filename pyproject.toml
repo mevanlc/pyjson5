@@ -26,6 +26,9 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
 ]
 dynamic = [ "version" ]
+urls.Changelog = "https://github.com/mevanlc/pyjson5/blob/main/README.md"
+urls.Issues = "https://github.com/mevanlc/pyjson5/issues"
+urls.Repository = "https://github.com/mevanlc/pyjson5"
 scripts.pyjson5 = "json5.tool:main"
 
 [dependency-groups]
