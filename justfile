@@ -1,3 +1,5 @@
+set guards
+
 set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 default:
@@ -15,8 +17,11 @@ test *args:
 
 tests *args: (test args)
 
-format:
-    uv run --group dev -- pyproject-fmt pyproject.toml || test $? -eq 1
+_pyproject-fmt-rc1-ok:
+    ?uv run --group dev -- pyproject-fmt pyproject.toml
+
+
+format: _pyproject-fmt-rc1-ok
     uv run --group dev -- ruff format
 
 format-check:
