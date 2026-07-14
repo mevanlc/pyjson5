@@ -34,6 +34,17 @@ from json5.host import Host
 from json5.version import __version__
 
 QUOTE_STYLES = {q.value: q for q in json5.QuoteStyle}
+CONTINUATION_STYLES = {s.value: s for s in json5.ContinuationStyle}
+
+
+def _continuation_column(value):
+    try:
+        column = int(value)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError('must be an integer') from e
+    if column < 2:
+        raise argparse.ArgumentTypeError('must be at least 2')
+    return column
 
 
 def main(argv=None, host=None):
@@ -65,6 +76,7 @@ def main(argv=None, host=None):
         args.trailing_commas = False
         args.quote_style = json5.QuoteStyle.ALWAYS_DOUBLE.value
         args.multiline = False
+        args.continuations_at = None
 
     if args.json_lines:
         for line in inp.splitlines():
@@ -76,6 +88,10 @@ def main(argv=None, host=None):
                 trailing_commas=args.trailing_commas,
                 quote_style=QUOTE_STYLES[args.quote_style],
                 multiline=args.multiline,
+                continuations_at=args.continuations_at,
+                continuations_style=CONTINUATION_STYLES[
+                    args.continuations_style
+                ],
             )
             host.print(s)
     else:
@@ -87,6 +103,8 @@ def main(argv=None, host=None):
             trailing_commas=args.trailing_commas,
             quote_style=QUOTE_STYLES[args.quote_style],
             multiline=args.multiline,
+            continuations_at=args.continuations_at,
+            continuations_style=CONTINUATION_STYLES[args.continuations_style],
         )
         host.print(s)
     return 0
@@ -208,10 +226,24 @@ def _parse_args(host, argv):
         '--multiline',
         action='store_true',
         default=False,
-        help='Fold embedded newlines in strings into JSON5 multiline string '
-        'literals (using a trailing "\\" at end-of-line). Note: continuation '
-        'lines are not indented, otherwise indentation would become part of '
-        'the string value.',
+        help='Fold embedded newlines in string values into JSON5 multiline '
+        'string literals (using a trailing "\\" at end-of-line). Note: '
+        'continuation lines are not indented, otherwise indentation would '
+        'become part of the string value.',
+    )
+    parser.add_argument(
+        '--continuations-at',
+        metavar='COL',
+        type=_continuation_column,
+        help='Wrap long string values using JSON5 line continuations at or '
+        'before this one-based output column.',
+    )
+    parser.add_argument(
+        '--continuations-style',
+        choices=CONTINUATION_STYLES.keys(),
+        help='How to wrap string values: w1/wn use word wrapping and c1/cn '
+        'use codepoint wrapping; styles ending in n also process strings with '
+        'embedded newlines. Defaults to w1.',
     )
     parser.add_argument(
         'file',
@@ -222,7 +254,12 @@ def _parse_args(host, argv):
         'not specified or "-", will read from stdin '
         'instead',
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.continuations_style and args.continuations_at is None:
+        parser.error('--continuations-style requires --continuations-at')
+    if args.continuations_style is None:
+        args.continuations_style = json5.ContinuationStyle.WORD_SINGLE_LINE.value
+    return args
 
 
 if __name__ == '__main__':  # pragma: no cover

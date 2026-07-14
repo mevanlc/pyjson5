@@ -152,6 +152,92 @@ class ToolTest(unittest.TestCase):
             out='{\n    foo: "a\\n\\\nb",\n}\n',
         )
 
+    def test_continuations(self):
+        self.check(
+            [
+                '--continuations-at',
+                '16',
+                '-c',
+                '{foo: "one two three four"}',
+            ],
+            out=(
+                '{\n'
+                '    foo: "one \\\n'
+                'two three four",\n'
+                '}\n'
+            ),
+        )
+
+    def test_continuations_style(self):
+        self.check(
+            [
+                '--indent=None',
+                '--continuations-at',
+                '8',
+                '--continuations-style',
+                'cn',
+                '--multiline',
+                '-c',
+                '{foo: "abcdefgh\\nijklmnop"}',
+            ],
+            out=(
+                '{foo: "\\\n'
+                'abcdefg\\\n'
+                'h\\n\\\n'
+                'ijklmno\\\n'
+                'p"}\n'
+            ),
+        )
+
+    def test_continuations_are_disabled_by_as_json(self):
+        self.check(
+            [
+                '--as-json',
+                '--indent=None',
+                '--continuations-at',
+                '8',
+                '-c',
+                '{foo: "abcdefghijkl"}',
+            ],
+            out='{"foo": "abcdefghijkl"}\n',
+        )
+
+    def test_continuations_style_requires_column(self):
+        self.check(
+            ['--continuations-style', 'cn'],
+            returncode=2,
+            err=(
+                'usage: json5 [options] [FILE]\n'
+                '    -h/--help for help\n'
+                '\n'
+                'error: --continuations-style requires --continuations-at\n'
+            ),
+        )
+
+    def test_continuations_column_must_be_at_least_two(self):
+        self.check(
+            ['--continuations-at', '1'],
+            returncode=2,
+            err=(
+                'usage: json5 [options] [FILE]\n'
+                '    -h/--help for help\n'
+                '\n'
+                'error: argument --continuations-at: must be at least 2\n'
+            ),
+        )
+
+    def test_continuations_column_must_be_an_integer(self):
+        self.check(
+            ['--continuations-at', 'nope'],
+            returncode=2,
+            err=(
+                'usage: json5 [options] [FILE]\n'
+                '    -h/--help for help\n'
+                '\n'
+                'error: argument --continuations-at: must be an integer\n'
+            ),
+        )
+
     def test_json_lines(self):
         self.check(
             ['--json-lines'],

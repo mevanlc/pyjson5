@@ -54,6 +54,39 @@ be legal object keys in JavaScript, but they aren't in JSON5.
   keyword *is* supported, though, and might be able to serve as a
   workaround.
 
+## Pretty-printing string values
+
+The command-line formatter can use JSON5 line continuations to make long
+string values easier to read without changing their values:
+
+```
+$ python -m json5 --multiline --continuations-at 80 input.json
+```
+
+`--multiline` introduces a continuation after each embedded newline character.
+`--continuations-at COL` wraps long string values at or before the specified
+one-based output column when possible. Indivisible words and encoded escape
+sequences may extend past that column. `--continuations-style` controls how
+width wrapping is performed:
+
+* `w1` (the default) wraps at word boundaries and only processes strings with
+  no embedded newlines.
+* `wn` wraps at word boundaries and also processes strings with embedded
+  newlines.
+* `c1` wraps between Unicode codepoints and only processes strings with no
+  embedded newlines.
+* `cn` wraps between Unicode codepoints and also processes strings with
+  embedded newlines.
+
+Encoded escape sequences are never split. Both options process string values,
+not object keys, and are disabled by `--as-json` because JSON does not support
+line continuations. Continuation lines are not indented: any leading whitespace
+inside a continued string is part of the original value.
+
+The corresponding `dump()` and `dumps()` keyword arguments are `multiline`,
+`continuations_at`, and `continuations_style`. The latter accepts a
+`ContinuationStyle` enum value.
+
 ## Contributing
 
 `json5` have no runtime dependencies and it is supported on Python version 3.8

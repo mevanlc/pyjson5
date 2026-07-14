@@ -20,6 +20,7 @@ from typing import (
     Callable,
     IO,
     Iterable,
+    List,
     Mapping,
     Optional,
     Set,
@@ -68,6 +69,26 @@ class QuoteStyle(enum.Enum):
     ALWAYS_SINGLE = 'always_single'
     PREFER_DOUBLE = 'prefer_double'
     PREFER_SINGLE = 'prefer_single'
+
+
+class ContinuationStyle(enum.Enum):
+    """Controls where line continuations may be inserted in string values.
+
+    WORD_SINGLE_LINE and CODEPOINT_SINGLE_LINE only process strings without
+    embedded newline characters. WORD_WITH_NEWLINES and
+    CODEPOINT_WITH_NEWLINES process all string values. Word wrapping treats
+    each maximal run of non-whitespace characters as an indivisible word;
+    codepoint wrapping may break between any two Unicode codepoints. Neither
+    style will split an encoded escape sequence.
+    """
+
+    WORD_SINGLE_LINE = 'w1'
+    WORD_WITH_NEWLINES = 'wn'
+    CODEPOINT_SINGLE_LINE = 'c1'
+    CODEPOINT_WITH_NEWLINES = 'cn'
+
+
+_StringToken = Tuple[str, bool, bool]
 
 
 def load(
@@ -403,6 +424,8 @@ def dump(
     allow_duplicate_keys: bool = True,
     quote_style: QuoteStyle = QuoteStyle.ALWAYS_DOUBLE,
     multiline: bool = False,
+    continuations_at: Optional[int] = None,
+    continuations_style: ContinuationStyle = ContinuationStyle.WORD_SINGLE_LINE,
     **kw,
 ):
     """Serialize ``obj`` to a JSON5-formatted stream to ``fp``,
@@ -432,6 +455,8 @@ def dump(
             allow_duplicate_keys=allow_duplicate_keys,
             quote_style=quote_style,
             multiline=multiline,
+            continuations_at=continuations_at,
+            continuations_style=continuations_style,
             **kw,
         )
     )
@@ -454,6 +479,8 @@ def dumps(
     allow_duplicate_keys: bool = True,
     quote_style: QuoteStyle = QuoteStyle.ALWAYS_DOUBLE,
     multiline: bool = False,
+    continuations_at: Optional[int] = None,
+    continuations_style: ContinuationStyle = ContinuationStyle.WORD_SINGLE_LINE,
     **kw: Any,
 ):
     """Serialize ``obj`` to a JSON5-formatted string.
@@ -491,11 +518,18 @@ def dumps(
 
       *`quote_style` was added in version 0.10.0*.
 
-    - If `multiline` is true, strings containing newline characters will be
-      encoded using JSON5's multi-line string literal syntax (a `\\` at the end
-      of the line to continue reading the string on the next line). Note that
-      continuation lines are not indented, because leading spaces would become
-      part of the string value.
+    - If `multiline` is true, string values containing newline characters will
+      be encoded using JSON5's multi-line string literal syntax (a `\\` at the
+      end of the line to continue reading the string on the next line). Note
+      that continuation lines are not indented, because leading spaces would
+      become part of the string value.
+
+    - If `continuations_at` is set, line continuations will be inserted in long
+      string values at or before that one-based output column when possible.
+      The wrapping behavior is controlled by `continuations_style`; see
+      `ContinuationStyle` above. Columns count serialized characters rather
+      than terminal display cells. Indivisible words and encoded escape
+      sequences may extend past the requested column.
 
     Other keyword arguments are allowed and will be passed to the
     encoder so custom encoders can get them, but otherwise they will
@@ -551,6 +585,8 @@ def dumps(
         allow_duplicate_keys=allow_duplicate_keys,
         quote_style=quote_style,
         multiline=multiline,
+        continuations_at=continuations_at,
+        continuations_style=continuations_style,
         **kw,
     )
     return enc.encode(obj, seen=set(), level=0, as_key=False)
@@ -573,6 +609,10 @@ class JSON5Encoder:
         allow_duplicate_keys: bool = True,
         quote_style: QuoteStyle = QuoteStyle.ALWAYS_DOUBLE,
         multiline: bool = False,
+        continuations_at: Optional[int] = None,
+        continuations_style: ContinuationStyle = (
+            ContinuationStyle.WORD_SINGLE_LINE
+        ),
         **kw,
     ):
         """Provides a class that may be overridden to customize the behavior
@@ -598,6 +638,14 @@ class JSON5Encoder:
         self.allow_duplicate_keys = allow_duplicate_keys
         self.quote_style = quote_style
         self.multiline = multiline
+        if continuations_at is not None and continuations_at < 2:
+            raise ValueError('continuations_at must be at least 2')
+        self.continuations_at = continuations_at
+        self.continuations_style = continuations_style
+        # The number of serialized characters preceding the value currently
+        # being encoded on its physical output line. This is private state so
+        # the public encode() override contract does not need to change.
+        self._current_column = 0
 
     def default(self, obj: Any) -> Any:
         """Provides a last-ditch option to encode a value that the encoder
@@ -704,19 +752,19 @@ class JSON5Encoder:
         ):
             return obj
 
-        return self._encode_quoted_str(obj, self.quote_style)
+        return self._encode_quoted_str(obj, self.quote_style, as_key=as_key)
 
-    def _encode_quoted_str(self, obj: str, quote_style: QuoteStyle) -> str:
+    def _encode_quoted_str(
+        self, obj: str, quote_style: QuoteStyle, *, as_key: bool
+    ) -> str:
         """Returns a quoted string with a minimal number of escaped quotes."""
-        ret = []
+        tokens: List[_StringToken] = []
         double_quotes_seen = 0
         single_quotes_seen = 0
         sq = "'"
         dq = '"'
         for ch in obj:
-            if ch == '\n' and self.multiline:
-                encoded_ch = r'\n' + '\\\n'
-            elif ch == dq:
+            if ch == dq:
                 # At first we will guess at which quotes to escape. If
                 # we guess wrong, we reencode the string below.
                 double_quotes_seen += 1
@@ -748,23 +796,138 @@ class JSON5Encoder:
                     encoded_ch = ch
                 else:
                     encoded_ch = self._escape_ch(ch)
-            ret.append(encoded_ch)
+            tokens.append((encoded_ch, ch.isspace(), ch == '\n'))
 
         # We may have guessed wrong and need to reencode the string.
         if (
             double_quotes_seen > single_quotes_seen
             and quote_style == QuoteStyle.PREFER_DOUBLE
         ):
-            return self._encode_quoted_str(obj, QuoteStyle.ALWAYS_SINGLE)
+            return self._encode_quoted_str(
+                obj, QuoteStyle.ALWAYS_SINGLE, as_key=as_key
+            )
         if (
             single_quotes_seen > double_quotes_seen
             and quote_style == QuoteStyle.PREFER_SINGLE
         ):
-            return self._encode_quoted_str(obj, QuoteStyle.ALWAYS_DOUBLE)
+            return self._encode_quoted_str(
+                obj, QuoteStyle.ALWAYS_DOUBLE, as_key=as_key
+            )
 
         if quote_style in (QuoteStyle.ALWAYS_DOUBLE, QuoteStyle.PREFER_DOUBLE):
-            return '"' + ''.join(ret) + '"'
-        return "'" + ''.join(ret) + "'"
+            quote = '"'
+        else:
+            quote = "'"
+
+        use_continuations = (
+            not as_key
+            and self.continuations_at is not None
+            and (
+                '\n' not in obj
+                or self.continuations_style
+                in (
+                    ContinuationStyle.WORD_WITH_NEWLINES,
+                    ContinuationStyle.CODEPOINT_WITH_NEWLINES,
+                )
+            )
+        )
+        use_multiline = self.multiline and not as_key
+        if not use_continuations and not use_multiline:
+            return quote + ''.join(token[0] for token in tokens) + quote
+
+        ret = [quote]
+        column = self._current_column + 1
+        segment: List[_StringToken] = []
+        for token in tokens:
+            segment.append(token)
+            if token[2] and use_multiline:
+                rendered, column = self._render_string_segment(
+                    segment, column, use_continuations
+                )
+                ret.extend((rendered, '\\\n'))
+                column = 0
+                segment = []
+
+        rendered, _ = self._render_string_segment(
+            segment, column, use_continuations
+        )
+        ret.extend((rendered, quote))
+        return ''.join(ret)
+
+    def _render_string_segment(
+        self,
+        tokens: List[_StringToken],
+        column: int,
+        use_continuations: bool,
+    ) -> Tuple[str, int]:
+        if not use_continuations:
+            rendered = ''.join(token[0] for token in tokens)
+            return rendered, column + len(rendered)
+
+        if self.continuations_style in (
+            ContinuationStyle.WORD_SINGLE_LINE,
+            ContinuationStyle.WORD_WITH_NEWLINES,
+        ):
+            return self._render_word_wrapped_tokens(tokens, column)
+        return self._render_codepoint_wrapped_tokens(tokens, column)
+
+    def _render_codepoint_wrapped_tokens(
+        self, tokens: List[_StringToken], column: int
+    ) -> Tuple[str, int]:
+        assert self.continuations_at is not None
+        limit = self.continuations_at - 1
+        ret: List[str] = []
+        for token in tokens:
+            encoded = token[0]
+            if column and column + len(encoded) > limit:
+                ret.append('\\\n')
+                column = 0
+            ret.append(encoded)
+            column += len(encoded)
+        return ''.join(ret), column
+
+    def _render_word_wrapped_tokens(
+        self, tokens: List[_StringToken], column: int
+    ) -> Tuple[str, int]:
+        assert self.continuations_at is not None
+        limit = self.continuations_at - 1
+        ret: List[str] = []
+        whitespace: List[_StringToken] = []
+        i = 0
+        while i < len(tokens):
+            if tokens[i][1]:
+                whitespace.append(tokens[i])
+                i += 1
+                continue
+
+            word = []
+            while i < len(tokens) and not tokens[i][1]:
+                word.append(tokens[i])
+                i += 1
+
+            whitespace_len = sum(len(token[0]) for token in whitespace)
+            word_len = sum(len(token[0]) for token in word)
+            if column + whitespace_len + word_len <= limit:
+                ret.extend(token[0] for token in whitespace)
+                ret.extend(token[0] for token in word)
+                column += whitespace_len + word_len
+            else:
+                rendered, column = self._render_codepoint_wrapped_tokens(
+                    whitespace, column
+                )
+                ret.append(rendered)
+                if column and column + word_len > limit:
+                    ret.append('\\\n')
+                    column = 0
+                ret.extend(token[0] for token in word)
+                column += word_len
+            whitespace = []
+
+        rendered, column = self._render_codepoint_wrapped_tokens(
+            whitespace, column
+        )
+        ret.append(rendered)
+        return ''.join(ret), column
 
     def _escape_ch(self, ch: str) -> str:
         """Returns the backslash-escaped representation of the char."""
@@ -838,6 +1001,7 @@ class JSON5Encoder:
             keys = obj.keys()
 
         s = '{' + indent_str
+        column = self._ending_column(s, self._current_column)
 
         first_key = True
         new_keys = set()
@@ -858,9 +1022,17 @@ class JSON5Encoder:
                 first_key = False
             else:
                 s += item_sep
+                column = self._ending_column(item_sep, column)
 
-            val_str = self.encode(obj[key], seen, level, as_key=False)
-            s += key_str + kv_sep + val_str
+            s += key_str
+            column = self._ending_column(key_str, column)
+            s += kv_sep
+            column = self._ending_column(kv_sep, column)
+            val_str = self._encode_at_column(
+                obj[key], seen, level, as_key=False, column=column
+            )
+            s += val_str
+            column = self._ending_column(val_str, column)
 
         s += end_str + '}'
         return s
@@ -871,15 +1043,41 @@ class JSON5Encoder:
 
         indent_str, end_str = self._spacers(level)
         item_sep = self.item_separator + indent_str
-        return (
-            '['
-            + indent_str
-            + item_sep.join(
-                self.encode(el, seen, level, as_key=False) for el in obj
+        s = '[' + indent_str
+        column = self._ending_column(s, self._current_column)
+        for i, el in enumerate(obj):
+            if i:
+                s += item_sep
+                column = self._ending_column(item_sep, column)
+            encoded = self._encode_at_column(
+                el, seen, level, as_key=False, column=column
             )
-            + end_str
-            + ']'
-        )
+            s += encoded
+            column = self._ending_column(encoded, column)
+        return s + end_str + ']'
+
+    def _encode_at_column(
+        self,
+        obj: Any,
+        seen: Set,
+        level: int,
+        *,
+        as_key: bool,
+        column: int,
+    ) -> str:
+        previous_column = self._current_column
+        self._current_column = column
+        try:
+            return self.encode(obj, seen, level, as_key=as_key)
+        finally:
+            self._current_column = previous_column
+
+    @staticmethod
+    def _ending_column(s: str, starting_column: int) -> int:
+        last_newline = s.rfind('\n')
+        if last_newline == -1:
+            return starting_column + len(s)
+        return len(s) - last_newline - 1
 
     def _spacers(self, level: int) -> Tuple[str, str]:
         if self.indent is not None:
