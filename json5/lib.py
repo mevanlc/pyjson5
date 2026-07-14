@@ -950,7 +950,7 @@ class JSON5Encoder:
         if ch == '\v':
             return r'\v'
         if ch == '\0':
-            return r'\0'
+            return r'\u0000'
 
         o = ord(ch)
         if o < 65536:

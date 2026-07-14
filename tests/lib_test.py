@@ -717,8 +717,13 @@ class TestDumps(unittest.TestCase):
         self.check("'\\'", '"\'\\\\\'"')
         self.check(
             '\u2028\u2029\b\t\f\n\r\v\\\0',
-            r'"\u2028\u2029\b\t\f\n\r\v\\\0"',
+            r'"\u2028\u2029\b\t\f\n\r\v\\\u0000"',
         )
+        for suffix in ('', '0', '9'):
+            obj = '\0' + suffix
+            encoded = r'"\u0000' + suffix + '"'
+            self.check(obj, encoded)
+            self.assertEqual(obj, json5.loads(encoded))
 
     def test_multiline_strings(self):
         self.assertEqual(json5.dumps('a\nb'), r'"a\nb"')
