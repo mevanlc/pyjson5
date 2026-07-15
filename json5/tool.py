@@ -233,6 +233,7 @@ def _parse_args(host, argv):
         'become part of the string value.',
     )
     parser.add_argument(
+        '-C',
         '--continuations-at',
         metavar='COL',
         type=_continuation_column,
@@ -240,6 +241,7 @@ def _parse_args(host, argv):
         'before this one-based output column.',
     )
     parser.add_argument(
+        '-S',
         '--continuations-style',
         choices=CONTINUATION_STYLES.keys(),
         help='How to wrap string values: w1/wn use word wrapping and c1/cn '

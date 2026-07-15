@@ -43,8 +43,9 @@ backslashes at the physical line endings only continue the JSON5 string literal.
 
 ### Wrap long string values
 
-`--continuations-at COL` uses value-preserving continuations to wrap long
-string values at or before the specified one-based output column when possible:
+`-C COL` / `--continuations-at COL` uses value-preserving continuations to wrap
+long string values at or before the specified one-based output column when
+possible:
 
 ```console
 $ python -m json5 --continuations-at 28 --quote-style prefer_single \
@@ -56,7 +57,7 @@ lazy dog',
 }
 ```
 
-`--continuations-style` selects the wrapping behavior:
+`-S` / `--continuations-style` selects the wrapping behavior:
 
 * `w1` (the default) wraps at word boundaries and processes only strings
   without embedded newlines.

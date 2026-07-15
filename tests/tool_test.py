@@ -167,9 +167,9 @@ class ToolTest(unittest.TestCase):
         self.check(
             [
                 '--indent=None',
-                '--continuations-at',
+                '-C',
                 '8',
-                '--continuations-style',
+                '-S',
                 'cn',
                 '--multiline',
                 '-c',
@@ -211,7 +211,7 @@ class ToolTest(unittest.TestCase):
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: argument --continuations-at: must be at least 2\n'
+                'error: argument -C/--continuations-at: must be at least 2\n'
             ),
         )
 
@@ -223,7 +223,7 @@ class ToolTest(unittest.TestCase):
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: argument --continuations-at: must be an integer\n'
+                'error: argument -C/--continuations-at: must be an integer\n'
             ),
         )
 
