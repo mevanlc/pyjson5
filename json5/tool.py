@@ -76,7 +76,7 @@ def main(argv=None, host=None):
         args.trailing_commas = False
         args.quote_style = json5.QuoteStyle.ALWAYS_DOUBLE.value
         args.multiline = False
-        args.string_wrap = None
+        args.str_wrap = None
 
     if args.json_lines:
         for line in inp.splitlines():
@@ -89,8 +89,8 @@ def main(argv=None, host=None):
                 trailing_commas=args.trailing_commas,
                 quote_style=QUOTE_STYLES[args.quote_style],
                 multiline=args.multiline,
-                string_wrap=args.string_wrap,
-                string_wrap_style=STRING_WRAP_STYLES[args.string_wrap_style],
+                string_wrap=args.str_wrap,
+                string_wrap_style=STRING_WRAP_STYLES[args.str_wrap_style],
             )
             host.print(s)
     else:
@@ -103,8 +103,8 @@ def main(argv=None, host=None):
             trailing_commas=args.trailing_commas,
             quote_style=QUOTE_STYLES[args.quote_style],
             multiline=args.multiline,
-            string_wrap=args.string_wrap,
-            string_wrap_style=STRING_WRAP_STYLES[args.string_wrap_style],
+            string_wrap=args.str_wrap,
+            string_wrap_style=STRING_WRAP_STYLES[args.str_wrap_style],
         )
         host.print(s)
     return 0
@@ -247,7 +247,7 @@ def _parse_args(host, argv):
     )
     parser.add_argument(
         '-W',
-        '--string-wrap',
+        '--str-wrap',
         metavar='COL',
         type=_string_wrap_column,
         help='Wrap long string values using JSON5 line continuations at or '
@@ -255,7 +255,7 @@ def _parse_args(host, argv):
     )
     parser.add_argument(
         '-S',
-        '--string-wrap-style',
+        '--str-wrap-style',
         choices=STRING_WRAP_STYLES.keys(),
         help='How to wrap string values: w1/wn use word wrapping and c1/cn '
         'use codepoint wrapping; styles ending in n also process strings with '
@@ -271,10 +271,10 @@ def _parse_args(host, argv):
         'instead',
     )
     args = parser.parse_args(argv)
-    if args.string_wrap_style and args.string_wrap is None:
-        parser.error('--string-wrap-style requires --string-wrap')
-    if args.string_wrap_style is None:
-        args.string_wrap_style = json5.StringWrapStyle.WORD_SINGLE_LINE.value
+    if args.str_wrap_style and args.str_wrap is None:
+        parser.error('--str-wrap-style requires --str-wrap')
+    if args.str_wrap_style is None:
+        args.str_wrap_style = json5.StringWrapStyle.WORD_SINGLE_LINE.value
     return args
 
 

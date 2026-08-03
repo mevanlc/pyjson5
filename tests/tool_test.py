@@ -167,7 +167,7 @@ class ToolTest(unittest.TestCase):
     def test_string_wrap(self):
         self.check(
             [
-                '--string-wrap',
+                '--str-wrap',
                 '16',
                 '-c',
                 '{foo: "one two three four"}',
@@ -195,7 +195,7 @@ class ToolTest(unittest.TestCase):
             [
                 '--as-json',
                 '--indent=None',
-                '--string-wrap',
+                '--str-wrap',
                 '8',
                 '-c',
                 '{foo: "abcdefghijkl"}',
@@ -205,37 +205,37 @@ class ToolTest(unittest.TestCase):
 
     def test_string_wrap_style_requires_column(self):
         self.check(
-            ['--string-wrap-style', 'cn'],
+            ['--str-wrap-style', 'cn'],
             returncode=2,
             err=(
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: --string-wrap-style requires --string-wrap\n'
+                'error: --str-wrap-style requires --str-wrap\n'
             ),
         )
 
     def test_string_wrap_column_must_be_at_least_two(self):
         self.check(
-            ['--string-wrap', '1'],
+            ['--str-wrap', '1'],
             returncode=2,
             err=(
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: argument -W/--string-wrap: must be at least 2\n'
+                'error: argument -W/--str-wrap: must be at least 2\n'
             ),
         )
 
     def test_string_wrap_column_must_be_an_integer(self):
         self.check(
-            ['--string-wrap', 'nope'],
+            ['--str-wrap', 'nope'],
             returncode=2,
             err=(
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: argument -W/--string-wrap: must be an integer\n'
+                'error: argument -W/--str-wrap: must be an integer\n'
             ),
         )
 
