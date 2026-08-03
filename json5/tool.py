@@ -84,6 +84,7 @@ def main(argv=None, host=None):
             s = json5.dumps(
                 obj,
                 indent=args.indent,
+                ensure_ascii=args.escape_unicode,
                 quote_keys=args.quote_keys,
                 trailing_commas=args.trailing_commas,
                 quote_style=QUOTE_STYLES[args.quote_style],
@@ -99,6 +100,7 @@ def main(argv=None, host=None):
         s = json5.dumps(
             obj,
             indent=args.indent,
+            ensure_ascii=args.escape_unicode,
             quote_keys=args.quote_keys,
             trailing_commas=args.trailing_commas,
             quote_style=QUOTE_STYLES[args.quote_style],
@@ -206,6 +208,19 @@ def _parse_args(host, argv):
         dest='strict',
         action='store_false',
         help='Allow control characters (\\x00-\\x1f) in strings',
+    )
+    parser.add_argument(
+        '--escape-unicode',
+        action='store_true',
+        default=True,
+        help='escape non-ASCII codepoints using \\u sequences (this is the '
+        'default)',
+    )
+    parser.add_argument(
+        '--no-escape-unicode',
+        dest='escape_unicode',
+        action='store_false',
+        help='write non-ASCII codepoints literally',
     )
     parser.add_argument(
         '-l',

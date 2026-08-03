@@ -152,6 +152,18 @@ class ToolTest(unittest.TestCase):
             out='{\n    foo: "a\\n\\\nb",\n}\n',
         )
 
+    def test_unicode_is_escaped_by_default(self):
+        self.check(['-c', '"ü😀"'], out='"\\u00fc\\ud83d\\ude00"\n')
+
+    def test_escape_unicode(self):
+        self.check(
+            ['--escape-unicode', '-c', '"ü😀"'],
+            out='"\\u00fc\\ud83d\\ude00"\n',
+        )
+
+    def test_no_escape_unicode(self):
+        self.check(['--no-escape-unicode', '-c', '"ü😀"'], out='"ü😀"\n')
+
     def test_continuations(self):
         self.check(
             [
@@ -239,6 +251,13 @@ class ToolTest(unittest.TestCase):
             ['--json-lines', '--multiline'],
             stdin='{foo: "a\\nb"}\n{bar: "x"}\n',
             out=('{\n    foo: "a\\n\\\nb",\n}\n{\n    bar: "x",\n}\n'),
+        )
+
+    def test_json_lines_with_no_escape_unicode(self):
+        self.check(
+            ['--json-lines', '--no-escape-unicode'],
+            stdin='"ü"\n"😀"\n',
+            out='"ü"\n"😀"\n',
         )
 
     def test_quote_keys(self):

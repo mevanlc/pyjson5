@@ -75,6 +75,12 @@ The equivalent `dump()` and `dumps()` keyword arguments are `multiline`,
 `continuations_at`, and `continuations_style`. The last accepts a
 `ContinuationStyle` enum value or its string form.
 
+### Choose whether to escape Unicode
+
+`--escape-unicode` writes codepoints outside 7-bit ASCII as `\u` escapes and
+is the default. `--no-escape-unicode` instead writes those codepoints literally.
+The equivalent `dump()` and `dumps()` keyword argument is `ensure_ascii`.
+
 ### JSON Lines shorthand
 
 The upstream `--json-lines` option is also available as `-l`.
