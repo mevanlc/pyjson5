@@ -15,9 +15,9 @@
 """A pure Python implementation of the JSON5 configuration language."""
 
 from json5.lib import (
-    ContinuationStyle,
     JSON5Encoder,
     QuoteStyle,
+    StringWrapStyle,
     load,
     loads,
     parse,
@@ -28,9 +28,9 @@ from json5.version import __version__, VERSION
 
 
 __all__ = [
-    'ContinuationStyle',
     'JSON5Encoder',
     'QuoteStyle',
+    'StringWrapStyle',
     'VERSION',
     '__version__',
     'dump',

@@ -43,12 +43,12 @@ backslashes at the physical line endings only continue the JSON5 string literal.
 
 ### Wrap long string values
 
-`-C COL` / `--continuations-at COL` uses value-preserving continuations to wrap
+`-W COL` / `--string-wrap COL` uses value-preserving continuations to wrap
 long string values at or before the specified one-based output column when
 possible:
 
 ```console
-$ python -m json5 --continuations-at 28 --quote-style prefer_single \
+$ python -m json5 --string-wrap 28 --quote-style prefer_single \
     -c '{message: "the quick brown fox jumps over the lazy dog"}'
 {
     message: 'the quick \
@@ -57,7 +57,7 @@ lazy dog',
 }
 ```
 
-`-S` / `--continuations-style` selects the wrapping behavior:
+`-S` / `--string-wrap-style` selects the wrapping behavior:
 
 * `w1` (the default) wraps at word boundaries and processes only strings
   without embedded newlines.
@@ -68,12 +68,12 @@ lazy dog',
 * `cn` wraps between Unicode codepoints and also processes strings with
   embedded newlines.
 
-When `--continuations-at` and `--multiline` are combined, width wrapping is
+When `--string-wrap` and `--multiline` are combined, width wrapping is
 performed first and embedded newlines are folded afterward.
 
 The equivalent `dump()` and `dumps()` keyword arguments are `multiline`,
-`continuations_at`, and `continuations_style`. The last accepts a
-`ContinuationStyle` enum value or its string form.
+`string_wrap`, and `string_wrap_style`. The last accepts a `StringWrapStyle`
+enum value.
 
 ### Choose whether to escape Unicode
 

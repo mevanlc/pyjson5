@@ -34,10 +34,10 @@ from json5.host import Host
 from json5.version import __version__
 
 QUOTE_STYLES = {q.value: q for q in json5.QuoteStyle}
-CONTINUATION_STYLES = {s.value: s for s in json5.ContinuationStyle}
+STRING_WRAP_STYLES = {s.value: s for s in json5.StringWrapStyle}
 
 
-def _continuation_column(value):
+def _string_wrap_column(value):
     try:
         column = int(value)
     except ValueError as e:
@@ -76,7 +76,7 @@ def main(argv=None, host=None):
         args.trailing_commas = False
         args.quote_style = json5.QuoteStyle.ALWAYS_DOUBLE.value
         args.multiline = False
-        args.continuations_at = None
+        args.string_wrap = None
 
     if args.json_lines:
         for line in inp.splitlines():
@@ -89,10 +89,8 @@ def main(argv=None, host=None):
                 trailing_commas=args.trailing_commas,
                 quote_style=QUOTE_STYLES[args.quote_style],
                 multiline=args.multiline,
-                continuations_at=args.continuations_at,
-                continuations_style=CONTINUATION_STYLES[
-                    args.continuations_style
-                ],
+                string_wrap=args.string_wrap,
+                string_wrap_style=STRING_WRAP_STYLES[args.string_wrap_style],
             )
             host.print(s)
     else:
@@ -105,8 +103,8 @@ def main(argv=None, host=None):
             trailing_commas=args.trailing_commas,
             quote_style=QUOTE_STYLES[args.quote_style],
             multiline=args.multiline,
-            continuations_at=args.continuations_at,
-            continuations_style=CONTINUATION_STYLES[args.continuations_style],
+            string_wrap=args.string_wrap,
+            string_wrap_style=STRING_WRAP_STYLES[args.string_wrap_style],
         )
         host.print(s)
     return 0
@@ -248,17 +246,17 @@ def _parse_args(host, argv):
         'become part of the string value.',
     )
     parser.add_argument(
-        '-C',
-        '--continuations-at',
+        '-W',
+        '--string-wrap',
         metavar='COL',
-        type=_continuation_column,
+        type=_string_wrap_column,
         help='Wrap long string values using JSON5 line continuations at or '
         'before this one-based output column.',
     )
     parser.add_argument(
         '-S',
-        '--continuations-style',
-        choices=CONTINUATION_STYLES.keys(),
+        '--string-wrap-style',
+        choices=STRING_WRAP_STYLES.keys(),
         help='How to wrap string values: w1/wn use word wrapping and c1/cn '
         'use codepoint wrapping; styles ending in n also process strings with '
         'embedded newlines. Defaults to w1.',
@@ -273,12 +271,10 @@ def _parse_args(host, argv):
         'instead',
     )
     args = parser.parse_args(argv)
-    if args.continuations_style and args.continuations_at is None:
-        parser.error('--continuations-style requires --continuations-at')
-    if args.continuations_style is None:
-        args.continuations_style = (
-            json5.ContinuationStyle.WORD_SINGLE_LINE.value
-        )
+    if args.string_wrap_style and args.string_wrap is None:
+        parser.error('--string-wrap-style requires --string-wrap')
+    if args.string_wrap_style is None:
+        args.string_wrap_style = json5.StringWrapStyle.WORD_SINGLE_LINE.value
     return args
 
 

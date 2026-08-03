@@ -387,13 +387,13 @@ class TestDump(unittest.TestCase):
         json5.dump(True, sio)
         self.assertEqual('true', sio.getvalue())
 
-    def test_continuations(self):
+    def test_string_wrap(self):
         sio = io.StringIO()
         json5.dump(
             'abcdefgh',
             sio,
-            continuations_at=5,
-            continuations_style=json5.ContinuationStyle.CODEPOINT_SINGLE_LINE,
+            string_wrap=5,
+            string_wrap_style=json5.StringWrapStyle.CODEPOINT_SINGLE_LINE,
         )
         self.assertEqual('"abc\\\ndefg\\\nh"', sio.getvalue())
 
@@ -733,25 +733,25 @@ class TestDumps(unittest.TestCase):
             '{"a\\nb": "c\\n\\\n d"}',
         )
 
-    def test_continuation_styles(self):
+    def test_string_wrap_styles(self):
         cases = (
             (
-                json5.ContinuationStyle.WORD_SINGLE_LINE,
+                json5.StringWrapStyle.WORD_SINGLE_LINE,
                 'abcd efgh\nijkl mnop',
                 '"abcd efgh\\nijkl mnop"',
             ),
             (
-                json5.ContinuationStyle.WORD_WITH_NEWLINES,
+                json5.StringWrapStyle.WORD_WITH_NEWLINES,
                 'abcd efgh\nijkl mnop',
                 '"abcd \\\nefgh\\n\\\nijkl mnop"',
             ),
             (
-                json5.ContinuationStyle.CODEPOINT_SINGLE_LINE,
+                json5.StringWrapStyle.CODEPOINT_SINGLE_LINE,
                 'abcdefgh\nijklmnop',
                 '"abcdefgh\\nijklmnop"',
             ),
             (
-                json5.ContinuationStyle.CODEPOINT_WITH_NEWLINES,
+                json5.StringWrapStyle.CODEPOINT_WITH_NEWLINES,
                 'abcdefgh\nijklmnop',
                 '"abcdef\\\ngh\\nijk\\\nlmnop"',
             ),
@@ -761,29 +761,27 @@ class TestDumps(unittest.TestCase):
                 column = 10 if style.value.startswith('w') else 8
                 encoded = json5.dumps(
                     obj,
-                    continuations_at=column,
-                    continuations_style=style,
+                    string_wrap=column,
+                    string_wrap_style=style,
                 )
                 self.assertEqual(expected, encoded)
                 self.assertEqual(obj, json5.loads(encoded))
 
-    def test_word_continuations_use_output_columns(self):
+    def test_word_wrap_uses_output_columns(self):
         obj = {'key': 'one two three four'}
-        encoded = json5.dumps(obj, indent=2, continuations_at=16)
+        encoded = json5.dumps(obj, indent=2, string_wrap=16)
         self.assertEqual(
             '{\n  key: "one two\\\n three four",\n}',
             encoded,
         )
         self.assertEqual(obj, json5.loads(encoded))
 
-    def test_array_continuation_columns(self):
+    def test_array_string_wrap_columns(self):
         obj = ['abcdefghijkl', 'mnopqrstuvwx']
         encoded = json5.dumps(
             obj,
-            continuations_at=10,
-            continuations_style=(
-                json5.ContinuationStyle.CODEPOINT_SINGLE_LINE
-            ),
+            string_wrap=10,
+            string_wrap_style=(json5.StringWrapStyle.CODEPOINT_SINGLE_LINE),
         )
         self.assertEqual(
             '["abcdefg\\\nhijkl", "\\\nmnopqrstu\\\nvwx"]',
@@ -791,14 +789,12 @@ class TestDumps(unittest.TestCase):
         )
         self.assertEqual(obj, json5.loads(encoded))
 
-    def test_codepoint_continuations_do_not_split_escapes(self):
+    def test_codepoint_wrap_does_not_split_escapes(self):
         obj = 'ab\\cd"ef\u00fcgh'
         encoded = json5.dumps(
             obj,
-            continuations_at=7,
-            continuations_style=(
-                json5.ContinuationStyle.CODEPOINT_SINGLE_LINE
-            ),
+            string_wrap=7,
+            string_wrap_style=(json5.StringWrapStyle.CODEPOINT_SINGLE_LINE),
         )
         self.assertEqual(
             '"ab\\\\c\\\nd\\"ef\\\n\\u00fc\\\ngh"',
@@ -806,29 +802,25 @@ class TestDumps(unittest.TestCase):
         )
         self.assertEqual(obj, json5.loads(encoded))
 
-    def test_continuations_with_multiline(self):
+    def test_string_wrap_with_multiline(self):
         obj = 'abcdefgh\nijklmnop'
         encoded = json5.dumps(
             obj,
             multiline=True,
-            continuations_at=8,
-            continuations_style=(
-                json5.ContinuationStyle.CODEPOINT_WITH_NEWLINES
-            ),
+            string_wrap=8,
+            string_wrap_style=(json5.StringWrapStyle.CODEPOINT_WITH_NEWLINES),
         )
         self.assertEqual('"abcdef\\\ngh\\n\\\nijklmno\\\np"', encoded)
         self.assertEqual(obj, json5.loads(encoded))
 
-    def test_continuations_do_not_process_keys(self):
+    def test_string_wrap_does_not_process_keys(self):
         obj = {'abcdefghij\nkl': 'abcdefghijkl'}
         encoded = json5.dumps(
             obj,
             quote_keys=True,
             multiline=True,
-            continuations_at=8,
-            continuations_style=(
-                json5.ContinuationStyle.CODEPOINT_WITH_NEWLINES
-            ),
+            string_wrap=8,
+            string_wrap_style=(json5.StringWrapStyle.CODEPOINT_WITH_NEWLINES),
         )
         self.assertEqual(
             '{"abcdefghij\\nkl": "\\\nabcdefg\\\nhijkl"}',
@@ -836,11 +828,11 @@ class TestDumps(unittest.TestCase):
         )
         self.assertEqual(obj, json5.loads(encoded))
 
-    def test_continuations_at_must_be_at_least_two(self):
+    def test_string_wrap_must_be_at_least_two(self):
         with self.assertRaisesRegex(
-            ValueError, 'continuations_at must be at least 2'
+            ValueError, 'string_wrap must be at least 2'
         ):
-            json5.dumps('abc', continuations_at=1)
+            json5.dumps('abc', string_wrap=1)
 
     def test_string_quote_styles(self):
         def checkp(**kwargs):

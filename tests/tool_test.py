@@ -164,10 +164,10 @@ class ToolTest(unittest.TestCase):
     def test_no_escape_unicode(self):
         self.check(['--no-escape-unicode', '-c', '"ü😀"'], out='"ü😀"\n')
 
-    def test_continuations(self):
+    def test_string_wrap(self):
         self.check(
             [
-                '--continuations-at',
+                '--string-wrap',
                 '16',
                 '-c',
                 '{foo: "one two three four"}',
@@ -175,11 +175,11 @@ class ToolTest(unittest.TestCase):
             out=('{\n    foo: "one \\\ntwo three four",\n}\n'),
         )
 
-    def test_continuations_style(self):
+    def test_string_wrap_style(self):
         self.check(
             [
                 '--indent=None',
-                '-C',
+                '-W',
                 '8',
                 '-S',
                 'cn',
@@ -190,12 +190,12 @@ class ToolTest(unittest.TestCase):
             out=('{foo: "\\\nabcdefg\\\nh\\n\\\nijklmno\\\np"}\n'),
         )
 
-    def test_continuations_are_disabled_by_as_json(self):
+    def test_string_wrap_is_disabled_by_as_json(self):
         self.check(
             [
                 '--as-json',
                 '--indent=None',
-                '--continuations-at',
+                '--string-wrap',
                 '8',
                 '-c',
                 '{foo: "abcdefghijkl"}',
@@ -203,39 +203,39 @@ class ToolTest(unittest.TestCase):
             out='{"foo": "abcdefghijkl"}\n',
         )
 
-    def test_continuations_style_requires_column(self):
+    def test_string_wrap_style_requires_column(self):
         self.check(
-            ['--continuations-style', 'cn'],
+            ['--string-wrap-style', 'cn'],
             returncode=2,
             err=(
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: --continuations-style requires --continuations-at\n'
+                'error: --string-wrap-style requires --string-wrap\n'
             ),
         )
 
-    def test_continuations_column_must_be_at_least_two(self):
+    def test_string_wrap_column_must_be_at_least_two(self):
         self.check(
-            ['--continuations-at', '1'],
+            ['--string-wrap', '1'],
             returncode=2,
             err=(
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: argument -C/--continuations-at: must be at least 2\n'
+                'error: argument -W/--string-wrap: must be at least 2\n'
             ),
         )
 
-    def test_continuations_column_must_be_an_integer(self):
+    def test_string_wrap_column_must_be_an_integer(self):
         self.check(
-            ['--continuations-at', 'nope'],
+            ['--string-wrap', 'nope'],
             returncode=2,
             err=(
                 'usage: json5 [options] [FILE]\n'
                 '    -h/--help for help\n'
                 '\n'
-                'error: argument -C/--continuations-at: must be an integer\n'
+                'error: argument -W/--string-wrap: must be an integer\n'
             ),
         )
 

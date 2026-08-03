@@ -71,7 +71,7 @@ class QuoteStyle(enum.Enum):
     PREFER_SINGLE = 'prefer_single'
 
 
-class ContinuationStyle(enum.Enum):
+class StringWrapStyle(enum.Enum):
     """Controls where line continuations may be inserted in string values.
 
     WORD_SINGLE_LINE and CODEPOINT_SINGLE_LINE only process strings without
@@ -425,8 +425,8 @@ def dump(
     allow_duplicate_keys: bool = True,
     quote_style: QuoteStyle = QuoteStyle.ALWAYS_DOUBLE,
     multiline: bool = False,
-    continuations_at: Optional[int] = None,
-    continuations_style: ContinuationStyle = ContinuationStyle.WORD_SINGLE_LINE,
+    string_wrap: Optional[int] = None,
+    string_wrap_style: StringWrapStyle = StringWrapStyle.WORD_SINGLE_LINE,
     **kw,
 ):
     """Serialize ``obj`` to a JSON5-formatted stream to ``fp``,
@@ -456,8 +456,8 @@ def dump(
             allow_duplicate_keys=allow_duplicate_keys,
             quote_style=quote_style,
             multiline=multiline,
-            continuations_at=continuations_at,
-            continuations_style=continuations_style,
+            string_wrap=string_wrap,
+            string_wrap_style=string_wrap_style,
             **kw,
         )
     )
@@ -480,8 +480,8 @@ def dumps(
     allow_duplicate_keys: bool = True,
     quote_style: QuoteStyle = QuoteStyle.ALWAYS_DOUBLE,
     multiline: bool = False,
-    continuations_at: Optional[int] = None,
-    continuations_style: ContinuationStyle = ContinuationStyle.WORD_SINGLE_LINE,
+    string_wrap: Optional[int] = None,
+    string_wrap_style: StringWrapStyle = StringWrapStyle.WORD_SINGLE_LINE,
     **kw: Any,
 ):
     """Serialize ``obj`` to a JSON5-formatted string.
@@ -525,10 +525,10 @@ def dumps(
       that continuation lines are not indented, because leading spaces would
       become part of the string value.
 
-    - If `continuations_at` is set, line continuations will be inserted in long
+    - If `string_wrap` is set, line continuations will be inserted in long
       string values at or before that one-based output column when possible.
-      The wrapping behavior is controlled by `continuations_style`; see
-      `ContinuationStyle` above. Columns count serialized characters rather
+      The wrapping behavior is controlled by `string_wrap_style`; see
+      `StringWrapStyle` above. Columns count serialized characters rather
       than terminal display cells. Indivisible words and encoded escape
       sequences may extend past the requested column.
 
@@ -586,8 +586,8 @@ def dumps(
         allow_duplicate_keys=allow_duplicate_keys,
         quote_style=quote_style,
         multiline=multiline,
-        continuations_at=continuations_at,
-        continuations_style=continuations_style,
+        string_wrap=string_wrap,
+        string_wrap_style=string_wrap_style,
         **kw,
     )
     return enc.encode(obj, seen=set(), level=0, as_key=False)
@@ -610,9 +610,9 @@ class JSON5Encoder:
         allow_duplicate_keys: bool = True,
         quote_style: QuoteStyle = QuoteStyle.ALWAYS_DOUBLE,
         multiline: bool = False,
-        continuations_at: Optional[int] = None,
-        continuations_style: ContinuationStyle = (
-            ContinuationStyle.WORD_SINGLE_LINE
+        string_wrap: Optional[int] = None,
+        string_wrap_style: StringWrapStyle = (
+            StringWrapStyle.WORD_SINGLE_LINE
         ),
         **kw,
     ):
@@ -639,10 +639,10 @@ class JSON5Encoder:
         self.allow_duplicate_keys = allow_duplicate_keys
         self.quote_style = quote_style
         self.multiline = multiline
-        if continuations_at is not None and continuations_at < 2:
-            raise ValueError('continuations_at must be at least 2')
-        self.continuations_at = continuations_at
-        self.continuations_style = continuations_style
+        if string_wrap is not None and string_wrap < 2:
+            raise ValueError('string_wrap must be at least 2')
+        self.string_wrap = string_wrap
+        self.string_wrap_style = string_wrap_style
         # The number of serialized characters preceding the value currently
         # being encoded on its physical output line. This is private state so
         # the public encode() override contract does not need to change.
@@ -820,20 +820,20 @@ class JSON5Encoder:
         else:
             quote = "'"
 
-        use_continuations = (
+        use_string_wrap = (
             not as_key
-            and self.continuations_at is not None
+            and self.string_wrap is not None
             and (
                 '\n' not in obj
-                or self.continuations_style
+                or self.string_wrap_style
                 in (
-                    ContinuationStyle.WORD_WITH_NEWLINES,
-                    ContinuationStyle.CODEPOINT_WITH_NEWLINES,
+                    StringWrapStyle.WORD_WITH_NEWLINES,
+                    StringWrapStyle.CODEPOINT_WITH_NEWLINES,
                 )
             )
         )
         use_multiline = self.multiline and not as_key
-        if not use_continuations and not use_multiline:
+        if not use_string_wrap and not use_multiline:
             return quote + ''.join(token[0] for token in tokens) + quote
 
         ret = [quote]
@@ -843,14 +843,14 @@ class JSON5Encoder:
             segment.append(token)
             if token[2] and use_multiline:
                 rendered, column = self._render_string_segment(
-                    segment, column, use_continuations
+                    segment, column, use_string_wrap
                 )
                 ret.extend((rendered, '\\\n'))
                 column = 0
                 segment = []
 
         rendered, _ = self._render_string_segment(
-            segment, column, use_continuations
+            segment, column, use_string_wrap
         )
         ret.extend((rendered, quote))
         return ''.join(ret)
@@ -859,15 +859,15 @@ class JSON5Encoder:
         self,
         tokens: List[_StringToken],
         column: int,
-        use_continuations: bool,
+        use_string_wrap: bool,
     ) -> Tuple[str, int]:
-        if not use_continuations:
+        if not use_string_wrap:
             rendered = ''.join(token[0] for token in tokens)
             return rendered, column + len(rendered)
 
-        if self.continuations_style in (
-            ContinuationStyle.WORD_SINGLE_LINE,
-            ContinuationStyle.WORD_WITH_NEWLINES,
+        if self.string_wrap_style in (
+            StringWrapStyle.WORD_SINGLE_LINE,
+            StringWrapStyle.WORD_WITH_NEWLINES,
         ):
             return self._render_word_wrapped_tokens(tokens, column)
         return self._render_codepoint_wrapped_tokens(tokens, column)
@@ -875,8 +875,8 @@ class JSON5Encoder:
     def _render_codepoint_wrapped_tokens(
         self, tokens: List[_StringToken], column: int
     ) -> Tuple[str, int]:
-        assert self.continuations_at is not None
-        limit = self.continuations_at - 1
+        assert self.string_wrap is not None
+        limit = self.string_wrap - 1
         ret: List[str] = []
         for token in tokens:
             encoded = token[0]
@@ -890,8 +890,8 @@ class JSON5Encoder:
     def _render_word_wrapped_tokens(
         self, tokens: List[_StringToken], column: int
     ) -> Tuple[str, int]:
-        assert self.continuations_at is not None
-        limit = self.continuations_at - 1
+        assert self.string_wrap is not None
+        limit = self.string_wrap - 1
         ret: List[str] = []
         whitespace: List[_StringToken] = []
         i = 0
