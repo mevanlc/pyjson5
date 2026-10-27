@@ -16,10 +16,9 @@ import subprocess
 import sys
 import unittest
 
-from json5 import __version__, VERSION
+from json5 import VERSION, __version__
 from json5.host import Host
 from json5.tool import main
-
 from tests.host_fake import FakeHost
 
 
@@ -144,6 +143,10 @@ class ToolTest(unittest.TestCase):
         self.check(
             ['--as-json', '-c', '{foo: 1}'],
             out='{\n    "foo": 1\n}\n',
+        )
+        self.check(
+            ['--as-json', '-c', '"\\0\\v"'],
+            out='"\\u0000\\u000b"\n',
         )
 
     def test_multiline(self):

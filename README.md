@@ -91,7 +91,7 @@ The upstream `--json-lines` option is also available as `-l`.
 
 ## Important formatting details
 
-* These features process string values, not object keys.
+* String wrapping and multiline formatting process values, not object keys.
 * Continuation lines are not indented because leading whitespace would become
   part of the decoded string value.
 * Encoded escape sequences are never split. The `c` styles wrap between Unicode
@@ -105,17 +105,18 @@ The upstream `--json-lines` option is also available as `-l`.
 This fork intentionally replaced upstream's `run` helper with a `justfile`; use
 `just --list` to see the available development commands.
 
-The development environment uses [uv](https://docs.astral.sh/uv):
+The development environment uses [uv](https://docs.astral.sh/uv) and requires
+Python 3.11 through 3.14. The library and its tests also support Python
+3.8 through 3.10 and 3.15.
 
 ```console
 $ uv sync --group dev
 $ just test
 ```
 
-Regenerating `json5/parser.py` additionally requires a sibling checkout of
-[dpranke/glop](https://github.com/dpranke/glop):
+Regenerating `json5/parser.py` uses [glop](https://github.com/dpranke/glop)
+0.9.0, pinned in the development dependencies:
 
 ```console
-$ git clone https://github.com/dpranke/glop ../glop
 $ just regen
 ```

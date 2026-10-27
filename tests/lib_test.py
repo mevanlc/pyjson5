@@ -12,13 +12,94 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import decimal
 import io
+import json
 import math
 import os
 import unittest
 from collections import OrderedDict
 
 import json5
+
+
+class RecordingHook(list):
+    def __init__(self, transform=None):
+        super().__init__()
+        self.transform = transform
+
+    def __call__(self, value):
+        self.append(value)
+        return self.transform(value) if self.transform is not None else value
+
+
+class NoTruthHook(RecordingHook):
+    def __bool__(self):
+        raise AssertionError(
+            'Callbacks must not be truth-tested'
+        )  # pragma: no cover
+
+
+class TestOptionalHooks(unittest.TestCase):
+    def test_decoding_hooks(self):
+        cases = (
+            ('object_hook', '{"a": 1}'),
+            ('object_pairs_hook', '{"a": 1}'),
+            ('parse_int', '42'),
+            ('parse_float', '1.5'),
+            ('parse_constant', 'NaN'),
+        )
+        for name, text in cases:
+            for hook_type in (RecordingHook, NoTruthHook):
+                for method in ('load', 'loads', 'parse'):
+                    with self.subTest(
+                        name=name, hook=hook_type, method=method
+                    ):
+                        hook = hook_type()
+                        expected = json.loads(
+                            text, **{name: lambda value: value}
+                        )
+                        if method == 'load':
+                            actual = json5.load(
+                                io.StringIO(text), **{name: hook}
+                            )
+                        elif method == 'loads':
+                            actual = json5.loads(text, **{name: hook})
+                        else:
+                            actual, error, position = json5.parse(
+                                text, **{name: hook}
+                            )
+                            self.assertIsNone(error)
+                            self.assertEqual(position, len(text))
+                        self.assertEqual(actual, expected)
+                        self.assertEqual(len(hook), 1)
+
+    def test_object_pairs_hook_precedence(self):
+        pairs = RecordingHook()
+        objects = RecordingHook()
+        self.assertEqual(
+            json5.loads(
+                '{a: 1}', object_pairs_hook=pairs, object_hook=objects
+            ),
+            [('a', 1)],
+        )
+        self.assertEqual(pairs, [[('a', 1)]])
+        self.assertEqual(objects, [])
+
+    def test_default_hook(self):
+        for hook_type in (RecordingHook, NoTruthHook):
+            for method in ('dump', 'dumps'):
+                with self.subTest(hook=hook_type, method=method):
+                    hook = hook_type(lambda _obj: 'custom')
+                    value = object()
+                    if method == 'dump':
+                        output = io.StringIO()
+                        json5.dump(value, output, default=hook)
+                        actual = output.getvalue()
+                    else:
+                        actual = json5.dumps(value, default=hook)
+                    self.assertEqual(actual, '"custom"')
+                    self.assertEqual(hook, [value])
 
 
 class TestLoads(unittest.TestCase):
@@ -125,6 +206,19 @@ class TestLoads(unittest.TestCase):
 
         # syntax errors
         self.check_fail('14d', '<string>:1 Unexpected "d" at column 3')
+        self.check_fail('.', '<string>:1 Unexpected end of input at column 2')
+        self.check_fail('.e5', '<string>:1 Unexpected "e" at column 2')
+        self.check_fail('1e', '<string>:1 Unexpected end of input at column 3')
+        self.check_fail(
+            '1e+', '<string>:1 Unexpected end of input at column 4'
+        )
+        self.check_fail('[1e]', '<string>:1 Unexpected "]" at column 4')
+
+        # malformed numbers are rejected by the parser, not by parse_float
+        self.assertEqual(
+            json5.parse('1e', parse_float=decimal.Decimal),
+            (None, '<string>:1 Unexpected end of input at column 3', 2),
+        )
 
     def test_identifiers(self):
         self.check('{a: 1}', {'a': 1})
@@ -173,6 +267,27 @@ class TestLoads(unittest.TestCase):
         # Undertie (category Pc, connector punctuation)
         self.check('{a\u203fb: 1}', {'a\u203fb': 1})
 
+    def test_identifiers_escapes(self):
+        self.check('{\\u0061: 1}', {'a': 1})
+        self.check('{\\u0024\\u005f: 1}', {'$_': 1})
+        self.check(
+            '{\\u00c3\\u02b0\\u01bb\\u01c8\\u2160: 1}',
+            {'\xc3\u02b0\u01bb\u01c8\u2160': 1},
+        )
+        self.check(
+            '{a\\u0030\\u0308\\ua953\\u203f: 1}', {'a0\u0308\ua953\u203f': 1}
+        )
+        self.check('{a\\u200c\\u200D: 1}', {'a\u200c\u200d': 1})
+        self.check('{\\ud835\\udc00: 1}', {'\U0001d400': 1})
+
+        # An escape can't be used to put a character into an identifier
+        # that wouldn't otherwise be legal there.
+        self.check_fail('{\\u0031: 1}')
+        self.check_fail('{\\u0022: 1}')
+        self.check_fail('{a\\u0020b: 1}')
+        self.check_fail('{a\\u003a: 1}')
+        self.check_fail('{a\\u0000: 1}')
+
     def test_null(self):
         self.check('null', None)
 
@@ -213,6 +328,9 @@ class TestLoads(unittest.TestCase):
             return x
 
         self.assertEqual(json5.loads('1.0', parse_float=hook), '1.0')
+        for text in ('1E5', '1E+5', '2.5E-3', '1e5', '1e-5'):
+            with self.subTest(text=text):
+                self.assertEqual(json5.loads(text, parse_float=hook), text)
 
     def test_parse_int(self):
         def hook(x, base=10):
@@ -250,6 +368,50 @@ class TestLoads(unittest.TestCase):
         with self.assertRaises(ValueError):
             json5.load(s)
 
+    def test_load_start_is_absolute(self):
+        for stream_type in (io.StringIO, io.BytesIO):
+            for prefix in ('', 'ignored\n', '\u00e9\u4e2d\n'):
+                text = prefix + '{answer: 42}'
+                data = (
+                    text.encode('utf-8') if stream_type is io.BytesIO else text
+                )
+                for position in (0, 1, len(data)):
+                    with self.subTest(
+                        stream=stream_type, prefix=prefix, position=position
+                    ):
+                        fp = stream_type(data)
+                        fp.seek(position)
+                        self.assertEqual(
+                            {'answer': 42}, json5.load(fp, start=len(prefix))
+                        )
+
+    def test_load_without_start_uses_current_position(self):
+        for stream_type in (io.StringIO, io.BytesIO):
+            text = 'ignored\n{answer: 42}'
+            data = text.encode('utf-8') if stream_type is io.BytesIO else text
+            fp = stream_type(data)
+            fp.read(len('ignored\n'))
+            self.assertEqual({'answer': 42}, json5.load(fp))
+
+    def test_load_start_does_not_change_numbers(self):
+        for text, position, start in (('123', 1, 0), ('x 123', 2, 2)):
+            with self.subTest(text=text, position=position, start=start):
+                fp = io.StringIO(text)
+                fp.seek(position)
+                self.assertEqual(123, json5.load(fp, start=start))
+
+    def test_load_without_start_does_not_seek(self):
+        class NonSeekable(io.StringIO):
+            def seek(self, offset, whence=0):
+                del offset, whence
+                raise io.UnsupportedOperation('not seekable')
+
+        self.assertEqual(
+            {'answer': 42}, json5.load(NonSeekable('{answer: 42}'))
+        )
+        with self.assertRaises(io.UnsupportedOperation):
+            json5.load(NonSeekable('{answer: 42}'), start=0)
+
     def test_strict(self):
         # From [GitHub issue #82](https://github.com/dpranke/pyjson5/issues/82)
         d = '{\n"key": "value\nover two lines",\n}'
@@ -275,6 +437,14 @@ class TestLoads(unittest.TestCase):
 
         # unicode literals
         self.check('"\\u0066oo"', 'foo')
+
+        # surrogate pairs decode to the astral code point they represent,
+        # matching the json module.
+        self.check('"\\ud800\\udc00"', chr(0x10000))
+        self.check('"\\ud83d\\ude00"', '\U0001f600')
+        self.check('{"\\ud83d\\ude00": 1}', {'\U0001f600': 1})
+        # a lone surrogate is left as-is.
+        self.check('"\\ud800"', '\ud800')
 
         # string literals w/ continuation markers at the end of the line.
         # These should not have spaces is the result.
@@ -410,6 +580,23 @@ class TestDumps(unittest.TestCase):
     def check(self, obj, s, **kwargs):
         self.assertEqual(s, json5.dumps(obj, **kwargs))
 
+    def test_skipkeys_with_indent_and_no_valid_keys(self):
+        obj = {(): 1}
+        for indent in (0, 2, '\t'):
+            for trailing_commas in (True, False):
+                with self.subTest(
+                    indent=indent, trailing_commas=trailing_commas
+                ):
+                    kwargs = {
+                        'skipkeys': True,
+                        'indent': indent,
+                        'trailing_commas': trailing_commas,
+                    }
+                    self.assertEqual(json5.dumps(obj, **kwargs), '{}')
+                    self.assertEqual(
+                        json5.loads(json5.dumps([obj], **kwargs)), [{}]
+                    )
+
     def test_allow_duplicate_keys(self):
         self.assertIn(
             json5.dumps({1: 'foo', '1': 'bar'}),
@@ -422,6 +609,33 @@ class TestDumps(unittest.TestCase):
             {1: 'foo', '1': 'bar'},
             allow_duplicate_keys=False,
         )
+
+    def test_allow_duplicate_keys_differently_encoded(self):
+        # These keys encode differently but decode to the same string.
+        for obj, kwargs in (
+            ({float('inf'): 'foo', 'Infinity': 'bar'}, {}),
+            ({float('nan'): 'foo', 'NaN': 'bar'}, {}),
+            (
+                {1: 'foo', '1': 'bar'},
+                {'quote_style': json5.QuoteStyle.ALWAYS_SINGLE},
+            ),
+            (
+                {True: 'foo', 'true': 'bar'},
+                {'quote_style': json5.QuoteStyle.PREFER_SINGLE},
+            ),
+            (
+                {None: 'foo', 'null': 'bar'},
+                {'quote_style': json5.QuoteStyle.ALWAYS_SINGLE},
+            ),
+        ):
+            with self.subTest(obj=obj, kwargs=kwargs):
+                self.assertRaises(
+                    ValueError,
+                    json5.dumps,
+                    obj,
+                    allow_duplicate_keys=False,
+                    **kwargs,
+                )
 
     def test_arrays(self):
         self.check([], '[]')
@@ -573,6 +787,46 @@ class TestDumps(unittest.TestCase):
         self.check('\u00fc', '"\\u00fc"')
         self.assertEqual(json5.dumps('\u00fc', ensure_ascii=False), '"\u00fc"')
 
+    def test_ensure_ascii_del(self):
+        for obj in ('\x7f', {'\x7f': 1}):
+            for ensure_ascii in (False, True):
+                with self.subTest(obj=obj, ensure_ascii=ensure_ascii):
+                    encoded = json5.dumps(
+                        obj,
+                        quote_keys=True,
+                        trailing_commas=False,
+                        ensure_ascii=ensure_ascii,
+                    )
+                    self.assertEqual(
+                        encoded, json.dumps(obj, ensure_ascii=ensure_ascii)
+                    )
+                    self.assertEqual(json5.loads(encoded), obj)
+
+    def test_ensure_ascii_unquoted_keys(self):
+        # Identifier keys are emitted unquoted, but must still honour
+        # ensure_ascii; the non-ascii characters are \\u-escaped in place
+        # (which the parser accepts in identifiers, so this round-trips).
+        self.check({'\u00e5': 1}, '{\\u00e5: 1}')
+        self.assertEqual(
+            json5.dumps({'\u00e5': 1}, ensure_ascii=False), '{\u00e5: 1}'
+        )
+        self.assertEqual(
+            json5.loads(json5.dumps({'\u00e5': 1})), {'\u00e5': 1}
+        )
+
+    def test_ensure_ascii_astral_keys(self):
+        # JSON5 uses ES5.1 IdentifierName: surrogate escapes are not allowed.
+        self.check({'\U0001d49c': 1}, '{"\\ud835\\udc9c": 1}')
+        self.check({'a\U0001d49cb': 1}, '{"a\\ud835\\udc9cb": 1}')
+        self.check({'\U00010000': 1}, '{"\\ud800\\udc00": 1}')
+        self.assertEqual(
+            json5.dumps({'\U0001d49c': 1}, ensure_ascii=False),
+            '{\U0001d49c: 1}',
+        )
+        self.assertEqual(
+            json5.loads(json5.dumps({'\U0001d49c': 1})), {'\U0001d49c': 1}
+        )
+
     def test_indent(self):
         self.assertEqual(json5.dumps([1, 2, 3], indent=None), '[1, 2, 3]')
         self.assertEqual(json5.dumps([1, 2, 3], indent=-1), '[\n1,\n2,\n3,\n]')
@@ -648,6 +902,7 @@ class TestDumps(unittest.TestCase):
         # can be tricky.
 
         # Normal Python escaping means that the following asserts are true:
+        # pylint: disable=redundant-unittest-assert
         self.assertEqual('\\z', '\\z')
         self.assertEqual('\\z', r'\z')
         self.assertEqual('\\z', r'\z')
@@ -722,7 +977,7 @@ class TestDumps(unittest.TestCase):
         self.check("'\\'", '"\'\\\\\'"')
         self.check(
             '\u2028\u2029\b\t\f\n\r\v\\\0',
-            r'"\u2028\u2029\b\t\f\n\r\v\\\u0000"',
+            r'"\u2028\u2029\b\t\f\n\r\u000b\\\u0000"',
         )
         for suffix in ('', '0', '9'):
             obj = '\0' + suffix
@@ -839,6 +1094,37 @@ class TestDumps(unittest.TestCase):
             ValueError, 'string_wrap must be at least 2'
         ):
             json5.dumps('abc', string_wrap=1)
+
+    def test_control_char_escapes_are_valid_json(self):
+        # JSON has no `\0` or `\v` escape sequences (they are JSON5-only),
+        # so NUL and VT have to be written as `\u0000` and `\u000b` for
+        # the json-compatible settings to produce output that the json
+        # module can read back.
+        for ch in ('\0', '\v'):
+            for s in (ch, ch + '1', 'a' + ch + 'b'):
+                with self.subTest(s=s):
+                    encoded = json5.dumps(
+                        s, quote_keys=True, trailing_commas=False
+                    )
+                    self.assertEqual(encoded, json.dumps(s))
+                    self.assertEqual(json.loads(encoded), s)
+
+    def test_null_escape_before_digits(self):
+        for digit in '0123456789':
+            for quote_style in json5.QuoteStyle:
+                for ensure_ascii in (False, True):
+                    with self.subTest(
+                        digit=digit,
+                        quote_style=quote_style,
+                        ensure_ascii=ensure_ascii,
+                    ):
+                        value = '\0' + digit
+                        encoded = json5.dumps(
+                            value,
+                            quote_style=quote_style,
+                            ensure_ascii=ensure_ascii,
+                        )
+                        self.assertEqual(json5.loads(encoded), value)
 
     def test_string_quote_styles(self):
         def checkp(**kwargs):

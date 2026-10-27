@@ -18,24 +18,23 @@ from json5.lib import (
     JSON5Encoder,
     QuoteStyle,
     StringWrapStyle,
+    dump,
+    dumps,
     load,
     loads,
     parse,
-    dump,
-    dumps,
 )
-from json5.version import __version__, VERSION
-
+from json5.version import VERSION, __version__
 
 __all__ = [
+    'VERSION',
     'JSON5Encoder',
     'QuoteStyle',
     'StringWrapStyle',
-    'VERSION',
     '__version__',
     'dump',
     'dumps',
-    'parse',
     'load',
     'loads',
+    'parse',
 ]

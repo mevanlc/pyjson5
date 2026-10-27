@@ -57,7 +57,7 @@ clean:
     uv run -- python -c 'import shutil, pathlib; paths=[".coverage","build","dist","json5.egg-info"]; [shutil.rmtree(p, ignore_errors=True) if pathlib.Path(p).is_dir() else pathlib.Path(p).unlink(missing_ok=True) for p in paths]'
 
 regen:
-    uv run -- python ../glop/glop/tool.py -o json5/parser.py --no-main --no-memoize -c json5/json5.g
+    uv run --group dev -- python -m glop -o json5/parser.py --no-main --no-memoize -c json5/json5.g
     uv run --group dev -- ruff format json5/parser.py
 
 regen-check:

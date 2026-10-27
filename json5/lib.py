@@ -15,10 +15,11 @@
 import enum
 import math
 import re
+import unicodedata
 from typing import (
+    IO,
     Any,
     Callable,
-    IO,
     Iterable,
     List,
     Mapping,
@@ -28,13 +29,31 @@ from typing import (
     Type,
     Union,
 )
-import unicodedata
 
 from json5.parser import Parser
 
-
 # Used when encoding keys, below.
 _reserved_word_re: Optional[re.Pattern] = None
+
+# A high surrogate (U+D800..U+DBFF) immediately followed by a low surrogate
+# (U+DC00..U+DFFF). `\u` escapes decode one UTF-16 code unit each, so an
+# astral character written as a surrogate pair arrives here as two separate
+# code points that have to be recombined.
+_surrogate_pair_re = re.compile('[\ud800-\udbff][\udc00-\udfff]')
+
+
+def _join_surrogate_pairs(s: str) -> str:
+    """Combine any UTF-16 surrogate pairs in a decoded string into the single
+    code point they represent, matching the `json` module and ECMAScript
+    string semantics. Lone surrogates are left untouched."""
+    if _surrogate_pair_re.search(s) is None:
+        return s
+
+    def combine(m: re.Match) -> str:
+        hi, lo = ord(m.group()[0]), ord(m.group()[1])
+        return chr(0x10000 + ((hi - 0xD800) << 10) + (lo - 0xDC00))
+
+    return _surrogate_pair_re.sub(combine, s)
 
 
 class QuoteStyle(enum.Enum):
@@ -92,7 +111,7 @@ _StringToken = Tuple[str, bool, bool]
 
 
 def load(
-    fp: IO,
+    fp: Union[IO[str], IO[bytes]],
     *,
     encoding: Optional[str] = None,
     cls: Any = None,
@@ -145,6 +164,8 @@ def load(
           `encoding`). This matches the `json` module.
     """
 
+    if start is not None:
+        fp.seek(0)
     s = fp.read()
     val, err, _ = parse(
         s,
@@ -166,7 +187,7 @@ def load(
 
 
 def loads(
-    s: str,
+    s: Union[str, bytes],
     *,
     encoding: Optional[str] = None,
     cls: Any = None,
@@ -228,7 +249,7 @@ def loads(
 
 
 def parse(
-    s: str,
+    s: Union[str, bytes],
     *,
     encoding: Optional[str] = None,
     cls: Any = None,
@@ -353,15 +374,17 @@ def _convert(
                     raise ValueError(f'Duplicate key "{key}" found in object')
                 keys.add(key)
 
-        if object_pairs_hook:
+        if object_pairs_hook is not None:
             return object_pairs_hook(pairs)
-        if object_hook:
+        if object_hook is not None:
             return object_hook(dict(pairs))
         return dict(pairs)
 
-    parse_float = parse_float or float
-    parse_int = parse_int or int
-    parse_constant = parse_constant or _fp_constant_parser
+    parse_float = float if parse_float is None else parse_float
+    parse_int = int if parse_int is None else parse_int
+    parse_constant = (
+        _fp_constant_parser if parse_constant is None else parse_constant
+    )
 
     return _walk_ast(ast, _dictify, parse_float, parse_int, parse_constant)
 
@@ -382,7 +405,7 @@ def _walk_ast(
     ty, v = el
     if ty == 'number':
         unsigned = v[1:] if v.startswith('-') else v
-        if unsigned.startswith('0x') or unsigned.startswith('0X'):
+        if unsigned.startswith(('0x', '0X')):
             return parse_int(v, base=16)
         if '.' in v or 'e' in v or 'E' in v:
             return parse_float(v)
@@ -390,14 +413,14 @@ def _walk_ast(
             return parse_constant(v)
         return parse_int(v)
     if ty == 'string':
-        return v
+        return _join_surrogate_pairs(v)
     if ty == 'object':
         pairs = []
         for key, val_expr in v:
             val = _walk_ast(
                 val_expr, dictify, parse_float, parse_int, parse_constant
             )
-            pairs.append((key, val))
+            pairs.append((_join_surrogate_pairs(key), val))
         return dictify(pairs)
     if ty == 'array':
         return [
@@ -409,7 +432,7 @@ def _walk_ast(
 
 def dump(
     obj: Any,
-    fp: IO,
+    fp: IO[str],
     *,
     skipkeys: bool = False,
     ensure_ascii: bool = True,
@@ -632,7 +655,7 @@ class JSON5Encoder:
         if separators is None:
             separators = (', ', ': ') if indent is None else (',', ': ')
         self.item_separator, self.kv_separator = separators
-        self.default_fn = default or _raise_type_error
+        self.default_fn = _raise_type_error if default is None else default
         self.sort_keys = sort_keys
         self.quote_keys = quote_keys
         self.trailing_commas = trailing_commas
@@ -750,7 +773,12 @@ class JSON5Encoder:
             and self.is_identifier(obj)
             and not self.quote_keys
             and not self.is_reserved_word(obj)
+            and not (self.ensure_ascii and any(ord(ch) > 0xFFFF for ch in obj))
         ):
+            if self.ensure_ascii:
+                return ''.join(
+                    self._escape_ch(ch) if ord(ch) > 127 else ch for ch in obj
+                )
             return obj
 
         return self._encode_quoted_str(obj, self.quote_style, as_key=as_key)
@@ -791,9 +819,9 @@ class JSON5Encoder:
                 o = ord(ch)
                 if o < 32:
                     encoded_ch = self._escape_ch(ch)
-                elif o < 128:
-                    encoded_ch = ch
-                elif not self.ensure_ascii and ch not in ('\u2028', '\u2029'):
+                elif o < 127 or (
+                    not self.ensure_ascii and ch not in ('\u2028', '\u2029')
+                ):
                     encoded_ch = ch
                 else:
                     encoded_ch = self._escape_ch(ch)
@@ -948,10 +976,6 @@ class JSON5Encoder:
             return r'\b'
         if ch == '\f':
             return r'\f'
-        if ch == '\v':
-            return r'\v'
-        if ch == '\0':
-            return r'\u0000'
 
         o = ord(ch)
         if o < 65536:
@@ -1015,9 +1039,16 @@ class JSON5Encoder:
                 raise
 
             if not self.allow_duplicate_keys:
-                if key_str in new_keys:
-                    raise ValueError(f'duplicate key {repr(key)}')
-                new_keys.add(key_str)
+                # Compare the keys as they will be decoded, not as encoded:
+                # e.g. 1 and '1' are written as "1" and '1' with single
+                # quotes, and float('inf') and 'Infinity' are written as
+                # "Infinity" and Infinity, but each pair reads back as the
+                # same key. Non-string keys are always encoded as a plain
+                # double-quoted string.
+                key_name = key if isinstance(key, str) else key_str[1:-1]
+                if key_name in new_keys:
+                    raise ValueError(f'duplicate key {key!r}')
+                new_keys.add(key_name)
 
             if first_key:
                 first_key = False
@@ -1035,6 +1066,8 @@ class JSON5Encoder:
             s += val_str
             column = self._ending_column(val_str, column)
 
+        if first_key:
+            return '{}'
         s += end_str + '}'
         return s
 
@@ -1160,7 +1193,7 @@ class JSON5Encoder:
             # for future use (both as of 5.1), null, true, and false.
             _reserved_word_re = re.compile(
                 '('
-                + '|'.join(
+                + '|'.join(  # noqa: FLY002 don't want an f-string here.
                     [
                         'break',
                         'case',
@@ -1215,4 +1248,4 @@ class JSON5Encoder:
 
 
 def _raise_type_error(obj) -> Any:
-    raise TypeError(f'{repr(obj)} is not JSON5 serializable')
+    raise TypeError(f'{obj!r} is not JSON5 serializable')
