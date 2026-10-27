@@ -19,6 +19,7 @@ import math
 import os
 import unittest
 from collections import OrderedDict
+from unittest import mock
 
 import json5
 
@@ -555,6 +556,130 @@ class TestParse(unittest.TestCase):
         self.assertEqual(val, [])
         self.assertEqual(err, None)
         self.assertEqual(pos, 4)
+
+
+@mock.patch.dict(os.environ, {'PYJSON5_NOJSONFASTPATH': ''})
+class TestJsonFastPath(unittest.TestCase):
+    # Plain JSON is decoded with the `json` module rather than the JSON5
+    # parser; these check that the results are the same either way.
+
+    documents = (
+        '{"a": [1, -0, 2.5, -1.5e+10, 1E-3, true, false, null], "b": {}}',
+        '[NaN, Infinity, -Infinity, 12345678901234567890]',
+        '"\\u00e9\\ud83d\\ude00\\ud800 \\" \\\\ \\/ \\b \\f \\n \\r \\t"',
+        '"\u2028\u2029"',
+        ' \t\r\n[ ] \n',
+        '{"a": 1, "a": {"": [{}]}}',
+        '"raw\ttab"',
+        '0',
+    )
+
+    def parse(self, s, json5_parser_only=False, **kwargs):
+        calls = []
+
+        def hook(name):
+            def record(value):
+                calls.append((name, value))
+                return value
+
+            return record
+
+        hooks = {name: hook(name) for name in kwargs.pop('hooks', ())}
+        env = {'PYJSON5_NOJSONFASTPATH': '1' if json5_parser_only else ''}
+        with mock.patch.dict(os.environ, env):
+            result = json5.parse(s, **hooks, **kwargs)
+        # repr() so that NaNs compare equal.
+        return repr(result), repr(calls)
+
+    def test_same_results_as_json5_parser(self):
+        variants = (
+            {},
+            {'consume_trailing': False},
+            {'strict': False},
+            {'allow_duplicate_keys': False},
+            {'hooks': ('parse_float', 'parse_int', 'parse_constant')},
+            {'hooks': ('object_hook',)},
+            {'hooks': ('object_pairs_hook', 'object_hook')},
+        )
+        for s in self.documents:
+            for kwargs in variants:
+                with self.subTest(s=s, **kwargs):
+                    self.assertEqual(
+                        self.parse(s, **kwargs),
+                        self.parse(s, json5_parser_only=True, **kwargs),
+                    )
+
+    @mock.patch.object(json5.lib, 'Parser', wraps=json5.lib.Parser)
+    def test_env_var_disables_fast_path(self, parser):
+        for value, uses_json5_parser in (
+            ('', False),
+            ('0', False),
+            ('1', True),
+        ):
+            parser.reset_mock()
+            env = {'PYJSON5_NOJSONFASTPATH': value}
+            with self.subTest(value=value), mock.patch.dict(os.environ, env):
+                self.assertEqual(
+                    json5.loads(' {"a": [1, 2.5, "x", null]} '),
+                    {'a': [1, 2.5, 'x', None]},
+                )
+                self.assertEqual(parser.called, uses_json5_parser)
+
+    def test_top_level_numbers_without_consume_trailing(self):
+        # `json` would stop reading each of these after the first digit.
+        self.assertEqual(
+            json5.parse('0x10', consume_trailing=False), (16, None, 4)
+        )
+        self.assertEqual(
+            json5.parse('1.', consume_trailing=False), (1.0, None, 2)
+        )
+        self.assertEqual(
+            json5.parse('1.e5', consume_trailing=False), (100000.0, None, 4)
+        )
+        self.assertEqual(
+            json5.parse('01', consume_trailing=False),
+            (None, '<string>:1 Unexpected "1" at column 2', 1),
+        )
+        self.assertEqual(
+            json5.parse('1 2', consume_trailing=False), (1, None, 1)
+        )
+
+    def test_literal_surrogates_are_joined(self):
+        pair = chr(0xD83D) + chr(0xDE00)
+        self.assertEqual(json5.loads(f'"{pair}"'), '\U0001f600')
+        self.assertEqual(json5.loads(f'"\\ud83d{chr(0xDE00)}"'), '\U0001f600')
+
+    def test_hooks_are_only_called_for_valid_documents(self):
+        hook = RecordingHook()
+        with self.assertRaises(ValueError):
+            json5.loads('[1, 2, x]', parse_int=hook)
+        self.assertEqual(hook, [])
+
+        hook = RecordingHook()
+        self.assertEqual(json5.loads('[1, 2]', parse_int=hook), ['1', '2'])
+        self.assertEqual(hook, ['1', '2'])
+
+    def test_hook_errors(self):
+        def fail(value):
+            raise ValueError(f'bad int {value}')
+
+        self.assertEqual(
+            json5.parse('[1] ', parse_int=fail), (None, 'bad int 1', 4)
+        )
+        with self.assertRaisesRegex(
+            ValueError, 'Duplicate key "a" found in object'
+        ):
+            json5.loads('{"a": 1, "a": 2}', allow_duplicate_keys=False)
+
+    def test_strict(self):
+        with self.assertRaisesRegex(ValueError, 'Unexpected "\n"'):
+            json5.loads('"a\nb"')
+        self.assertEqual(json5.loads('"a\nb"', strict=False), 'a\nb')
+
+    def test_deep_nesting(self):
+        # The JSON5 parser runs out of stack long before this.
+        s = '[' * 500 + ']' * 500
+        self.assertEqual(json5.loads(s), json.loads(s))
 
 
 class TestDump(unittest.TestCase):

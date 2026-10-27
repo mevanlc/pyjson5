@@ -100,6 +100,30 @@ The upstream `--json-lines` option is also available as `-l`.
 * `--as-json` disables continuations because standard JSON does not support
   them.
 
+## Faster loading of plain JSON
+
+`load()`, `loads()`, `parse()`, and the command-line tool first try to decode
+their input with Python's built-in `json` module, which is roughly 1000 times
+faster than the JSON5 parser. Input that `json` rejects, including anything
+using JSON5-only syntax, then goes through the JSON5 parser as before, so
+results and error messages are unchanged. The failed attempt adds well under
+1% to the parse time.
+
+Decoding hooks such as `object_hook` and `parse_float` are still called only
+once the whole document is known to be valid. For plain JSON this takes a
+second pass with `json`, so supplying a hook roughly halves the speedup.
+
+Plain JSON is also not subject to the JSON5 parser's nesting limit, which
+currently fails on arrays or objects nested more than 59 levels deep.
+
+Set the `PYJSON5_NOJSONFASTPATH` environment variable to a value other than
+`0` or the empty string to always use the JSON5 parser, e.g. when
+benchmarking it or running the tests against it alone:
+
+```console
+$ PYJSON5_NOJSONFASTPATH=1 just test
+```
+
 ## Development
 
 This fork intentionally replaced upstream's `run` helper with a `justfile`; use

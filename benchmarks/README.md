@@ -6,6 +6,10 @@ speed of JSON5 with the builtin JSON decoder.
 On a 2018 Mac Mini with a 3 GHz 6 Core Intel Core i5 and 64 GB of memory
 running MacOS 14.2.1, JSON5 is from 800-1200x slower than JSON.
 
+This fork decodes plain JSON with the `json` module before trying the
+JSON5 parser, so set `PYJSON5_NOJSONFASTPATH=1` to benchmark the JSON5
+parser itself.
+
 The three datasets come from MIT-licensed data grabbed off the web on
 Mar 3, 2024 around 21:30 GMT. Their accompanying licenses are contained
 in the [LICENSE](../LICENSE) file.

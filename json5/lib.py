@@ -13,7 +13,10 @@
 # limitations under the License.
 
 import enum
+import functools
+import json
 import math
+import os
 import re
 import unicodedata
 from typing import (
@@ -40,6 +43,9 @@ _reserved_word_re: Optional[re.Pattern] = None
 # astral character written as a surrogate pair arrives here as two separate
 # code points that have to be recombined.
 _surrogate_pair_re = re.compile('[\ud800-\udbff][\udc00-\udfff]')
+
+# Whitespace as the `json` module defines it (JSON5 allows more).
+_json_ws_re = re.compile('[ \t\n\r]*')
 
 
 def _join_surrogate_pairs(s: str) -> str:
@@ -332,6 +338,25 @@ def parse(
     if not s:
         raise ValueError('Empty strings are not legal JSON5')
     start = start or 0
+
+    # Plain JSON is common, and the `json` module decodes it about 1000x
+    # faster than the JSON5 parser below can.
+    if os.environ.get('PYJSON5_NOJSONFASTPATH', '') in ('', '0'):
+        result = _parse_as_json(
+            s,
+            start,
+            object_hook=object_hook,
+            parse_float=parse_float,
+            parse_int=parse_int,
+            parse_constant=parse_constant,
+            strict=strict,
+            object_pairs_hook=object_pairs_hook,
+            allow_duplicate_keys=allow_duplicate_keys,
+            consume_trailing=consume_trailing,
+        )
+        if result is not None:
+            return result
+
     parser = Parser(s, '<string>', pos=start)
     ast, err, pos = parser.parse(
         global_vars={'_strict': strict, '_consume_trailing': consume_trailing}
@@ -354,18 +379,97 @@ def parse(
         return None, str(e), pos
 
 
-def _convert(
-    ast,
+def _parse_as_json(
+    s: str,
+    start: int,
+    *,
     object_hook,
     parse_float,
     parse_int,
     parse_constant,
+    strict,
     object_pairs_hook,
     allow_duplicate_keys,
-):
-    def _fp_constant_parser(s):
-        return float(s.replace('Infinity', 'inf').replace('NaN', 'nan'))
+    consume_trailing,
+) -> Optional[Union[Tuple[Any, None, int], Tuple[None, str, int]]]:
+    """Do what `parse()` would, but with the `json` module.
 
+    Every document `json` accepts is also valid JSON5 and decodes to the
+    same value, with a few exceptions handled below. Returns None if `json`
+    rejects ``s`` or might decode it differently, so that the caller can
+    fall back to the JSON5 parser (which also reports any error).
+    """
+    # The JSON5 parser joins surrogate pairs even when they're written as
+    # literal code points, but `json` only joins escaped ones. Encoding
+    # fails on any surrogate, and is much faster than searching for one.
+    if not s.isascii():
+        try:
+            s.encode('utf-8')
+        except UnicodeEncodeError:
+            return None
+
+    value_start = _skip_json_ws(s, start)
+    try:
+        value, end = json.JSONDecoder(strict=strict).raw_decode(s, value_start)
+    except ValueError:
+        return None
+
+    if consume_trailing:
+        pos = _skip_json_ws(s, end)
+        if pos != len(s):
+            return None
+    elif (
+        end < len(s)
+        and s[end - 1] in '0123456789'
+        and s[end] not in ' \t\n\r,]}'
+    ):
+        # `json` stops reading a top-level number at the first character
+        # that can't continue it in JSON, but JSON5 might keep going (as in
+        # `0x10` or `1.`) or reject the number entirely (as in `01`).
+        return None
+    else:
+        pos = end
+
+    hooks = (
+        object_hook,
+        parse_float,
+        parse_int,
+        parse_constant,
+        object_pairs_hook,
+    )
+    if allow_duplicate_keys and all(hook is None for hook in hooks):
+        return value, None, pos
+
+    # `json` calls hooks while it decodes, but the JSON5 parser only calls
+    # them once the whole document is known to be valid, so decode again
+    # now that it is.
+    decoder = json.JSONDecoder(
+        object_pairs_hook=_make_dictify(
+            object_hook, object_pairs_hook, allow_duplicate_keys
+        ),
+        parse_float=_always_truthy(parse_float),
+        parse_int=_always_truthy(parse_int),
+        parse_constant=_always_truthy(parse_constant),
+        strict=strict,
+    )
+    try:
+        return decoder.raw_decode(s, value_start)[0], None, pos
+    except ValueError as e:
+        return None, str(e), pos
+
+
+def _skip_json_ws(s: str, pos: int) -> int:
+    m = _json_ws_re.match(s, pos)
+    return m.end() if m else pos
+
+
+def _always_truthy(hook):
+    # `json.JSONDecoder` falls back to its defaults with `parse_int or int`
+    # and so on, which would replace a hook that happens to be falsy.
+    return None if hook is None else functools.partial(hook)
+
+
+def _make_dictify(object_hook, object_pairs_hook, allow_duplicate_keys):
     def _dictify(pairs):
         if not allow_duplicate_keys:
             keys = set()
@@ -379,6 +483,25 @@ def _convert(
         if object_hook is not None:
             return object_hook(dict(pairs))
         return dict(pairs)
+
+    return _dictify
+
+
+def _convert(
+    ast,
+    object_hook,
+    parse_float,
+    parse_int,
+    parse_constant,
+    object_pairs_hook,
+    allow_duplicate_keys,
+):
+    def _fp_constant_parser(s):
+        return float(s.replace('Infinity', 'inf').replace('NaN', 'nan'))
+
+    _dictify = _make_dictify(
+        object_hook, object_pairs_hook, allow_duplicate_keys
+    )
 
     parse_float = float if parse_float is None else parse_float
     parse_int = int if parse_int is None else parse_int
