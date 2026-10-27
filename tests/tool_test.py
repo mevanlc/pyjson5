@@ -164,6 +164,16 @@ class ToolTest(unittest.TestCase):
     def test_no_escape_unicode(self):
         self.check(['--no-escape-unicode', '-c', '"ü😀"'], out='"ü😀"\n')
 
+    def test_literal_unicode_separators(self):
+        for strict in ('--strict', '--no-strict'):
+            for escape in ('--escape-unicode', '--no-escape-unicode'):
+                with self.subTest(strict=strict, escape=escape):
+                    self.check(
+                        [strict, '-W', '80', '-S', 'wn', '-m', escape],
+                        stdin='{"message": "a\u2028b\u2029c"}',
+                        out='{\n    message: "a\\u2028b\\u2029c",\n}\n',
+                    )
+
     def test_string_wrap(self):
         self.check(
             [

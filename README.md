@@ -81,6 +81,10 @@ enum value.
 is the default. `--no-escape-unicode` instead writes those codepoints literally.
 The equivalent `dump()` and `dumps()` keyword argument is `ensure_ascii`.
 
+Line and paragraph separators (`U+2028` and `U+2029`) are accepted literally
+inside input strings. They are always escaped on output, including with
+`--no-escape-unicode`.
+
 ### JSON Lines shorthand
 
 The upstream `--json-lines` option is also available as `-l`.
